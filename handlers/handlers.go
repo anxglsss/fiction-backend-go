@@ -102,7 +102,65 @@ func ListTournaments(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, tournaments)
+
+	var completedIDs []int64
+	for _, t := range tournaments {
+		if t.Status == models.TournamentStatusCompleted {
+			completedIDs = append(completedIDs, t.ID)
+		}
+	}
+
+	matchesByTournament := make(map[int64][]models.TournamentMatch)
+	if len(completedIDs) > 0 {
+		var allMatches []models.TournamentMatch
+		if err := db.DB.Where("tournament_id IN ?", completedIDs).Order("round, slot_in_round").Find(&allMatches).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		for _, m := range allMatches {
+			matchesByTournament[m.TournamentID] = append(matchesByTournament[m.TournamentID], m)
+		}
+	}
+
+	type item struct {
+		models.Tournament
+		Winner string   `json:"winner"`
+		Top8   []string `json:"top8"`
+	}
+	result := make([]item, len(tournaments))
+	for i, t := range tournaments {
+		result[i] = item{Tournament: t, Winner: "", Top8: nil}
+		if t.Status == models.TournamentStatusCompleted {
+			matches := matchesByTournament[t.ID]
+			var winner string
+			top8Set := make(map[string]bool)
+			for _, m := range matches {
+				if m.Round == 5 && m.WinnerSlug != "" {
+					winner = m.WinnerSlug
+				}
+				if m.Round >= 3 {
+					if m.Contestant1Slug != "" {
+						top8Set[m.Contestant1Slug] = true
+					}
+					if m.Contestant2Slug != "" {
+						top8Set[m.Contestant2Slug] = true
+					}
+				}
+			}
+			top8 := make([]string, 0, 8)
+			if winner != "" {
+				top8 = append(top8, winner)
+			}
+			for s := range top8Set {
+				if s != winner {
+					top8 = append(top8, s)
+				}
+			}
+			result[i].Winner = winner
+			result[i].Top8 = top8
+		}
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func GetFictions(c *gin.Context) {
