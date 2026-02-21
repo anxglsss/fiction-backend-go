@@ -7,12 +7,14 @@ import (
 type Config struct {
 	ServerPort  string
 	DatabaseURL string
+	CORSOrigin  string
 }
 
 func Load() *Config {
 	return &Config{
 		ServerPort:  getEnv("SERVER_PORT", "8080"),
 		DatabaseURL: getEnv("DATABASE_URL", "data.db"),
+		CORSOrigin:  getEnv("CORS_ORIGIN", "http://localhost:3000"),
 	}
 }
 
