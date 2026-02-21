@@ -123,10 +123,43 @@ func GetTournament(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"tournament": tournament,
 		"matches":    matches,
-	})
+	}
+
+	if tournament.Status == models.TournamentStatusCompleted {
+		var winnerSlug string
+		top8Set := make(map[string]bool)
+		for _, m := range matches {
+			if m.Round == 5 && m.WinnerSlug != "" {
+				winnerSlug = m.WinnerSlug
+			}
+			if m.Round >= 3 {
+				for _, s := range []string{m.Contestant1Slug, m.Contestant2Slug} {
+					if s != "" {
+						top8Set[s] = true
+					}
+				}
+			}
+		}
+		top8 := make([]string, 0, 8)
+		if winnerSlug != "" {
+			top8 = append(top8, winnerSlug)
+		}
+		for s := range top8Set {
+			if s != winnerSlug {
+				top8 = append(top8, s)
+			}
+		}
+		resp["result"] = gin.H{
+			"user_name": tournament.User.Name,
+			"winner":    winnerSlug,
+			"top8":      top8,
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func VoteMatch(c *gin.Context) {
@@ -179,7 +212,8 @@ func VoteMatch(c *gin.Context) {
 		}
 	}
 
-	if match.Round == 5 {
+	justCompleted := match.Round == 5
+	if justCompleted {
 		db.DB.Model(&models.Tournament{}).Where("id = ?", tournamentID).Update("status", models.TournamentStatusCompleted)
 	}
 
@@ -188,8 +222,31 @@ func VoteMatch(c *gin.Context) {
 	var matches []models.TournamentMatch
 	db.DB.Where("tournament_id = ?", tournamentID).Order("round, slot_in_round").Find(&matches)
 
-	c.JSON(http.StatusOK, gin.H{
-		"tournament": tournament,
-		"matches":    matches,
-	})
+	resp := gin.H{"tournament": tournament, "matches": matches}
+	if justCompleted {
+		winnerSlug := input.WinnerSlug
+		top8Set := make(map[string]bool)
+		for _, m := range matches {
+			if m.Round >= 3 {
+				if m.Contestant1Slug != "" {
+					top8Set[m.Contestant1Slug] = true
+				}
+				if m.Contestant2Slug != "" {
+					top8Set[m.Contestant2Slug] = true
+				}
+			}
+		}
+		top8 := []string{winnerSlug}
+		for s := range top8Set {
+			if s != winnerSlug {
+				top8 = append(top8, s)
+			}
+		}
+		resp["result"] = gin.H{
+			"user_name": tournament.User.Name,
+			"winner":    winnerSlug,
+			"top8":      top8,
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
